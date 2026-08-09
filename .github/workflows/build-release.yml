@@ -1,0 +1,100 @@
+name: Build and release
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test
+        run: python -m unittest discover -s tests -v
+      - name: Build single-file EXE
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "pyinstaller>=6.11,<7"
+          pyinstaller --noconfirm --clean --onefile --windowed --name RapfiGomoku --add-data "engine;engine" run.py
+          Move-Item dist/RapfiGomoku.exe dist/RapfiGomoku-Windows-x64.exe
+          $process = Start-Process -FilePath dist/RapfiGomoku-Windows-x64.exe -ArgumentList "--engine-smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Frozen Rapfi smoke test failed with exit code $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/RapfiGomoku-Windows-x64.exe
+          if-no-files-found: error
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: "3.1.74"
+          actions-cache-folder: emsdk-cache
+      - name: Build Rapfi WebAssembly
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 250615 --recurse-submodules --shallow-submodules https://github.com/dhbloo/rapfi.git rapfi-source
+          git -C rapfi-source apply "$GITHUB_WORKSPACE/patches/rapfi-wasm-single-thread.patch"
+          cp engine/config.toml rapfi-source/Networks/config.toml
+          cp engine/model210901.bin rapfi-source/Networks/model210901.bin
+          cp engine/mix9svqfreestyle_bsmix.bin.lz4 rapfi-source/Networks/mix9svqfreestyle_bsmix.bin.lz4
+          printf '%s\n' 'config.toml@config.toml' 'model210901.bin@model210901.bin' 'mix9svqfreestyle_bsmix.bin.lz4@mix9svqfreestyle_bsmix.bin.lz4' > rapfi-source/Networks/wasm_preloads.txt
+          cmake -E make_directory rapfi-source/Rapfi/build-wasm
+          cd rapfi-source/Rapfi/build-wasm
+          emcmake cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MULTI_THREADING=ON -DNO_COMMAND_MODULES=ON -DUSE_SSE=OFF -DUSE_AVX2=OFF -DUSE_AVX512=OFF -DUSE_BMI2=OFF -DUSE_VNNI=OFF -DUSE_NEON=OFF -DUSE_NEON_DOTPROD=OFF -DUSE_WASM_SIMD=ON -DUSE_WASM_SIMD_RELAXED=OFF
+          cmake --build . --parallel 2
+          mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/assets/engine"
+          cp rapfi-single-simd128.js rapfi-single-simd128.wasm "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/"
+          cp rapfi-single-simd128.data "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/rapfi.data"
+      - name: Build installable APK
+        working-directory: android
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Name APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk RapfiGomoku-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: RapfiGomoku-Android.apk
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-*"
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum *.exe *.apk > SHA256SUMS.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "弈境 · Rapfi 五子棋 ${GITHUB_REF_NAME}" --generate-notes --verify-tag

@@ -1,0 +1,13 @@
+diff --git a/Rapfi/search/searchthread.cpp b/Rapfi/search/searchthread.cpp
+index f3ec22d..a218ee7 100644
+--- a/Rapfi/search/searchthread.cpp
++++ b/Rapfi/search/searchthread.cpp
+@@ -241,6 +241,8 @@ void ThreadPool::waitForIdle()
+ {
+     // Iterate all other threads and wait for them to finish
+     for (auto &th : *this)
++#ifdef MULTI_THREADING
+         if (th->thread.get_id() != std::this_thread::get_id())
++#endif
+             th->waitForIdle();
+ }
