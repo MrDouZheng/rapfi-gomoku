@@ -4,7 +4,7 @@ self.onmessage = async (event) => {
   const message = event.data || {};
   if (message.type === "init") {
     try {
-      importScripts("engine/rapfi-single.js");
+      importScripts("engine/rapfi-single-simd128.js");
       const engineBase = new URL("engine/", self.location.href).href;
       engine = await self.Rapfi({
         locateFile(name) {

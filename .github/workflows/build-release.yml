@@ -62,11 +62,11 @@ jobs:
           printf '%s\n' 'config.toml@config.toml' 'model210901.bin@model210901.bin' 'mix9svqfreestyle_bsmix.bin.lz4@mix9svqfreestyle_bsmix.bin.lz4' > rapfi-source/Networks/wasm_preloads.txt
           cmake -E make_directory rapfi-source/Rapfi/build-wasm
           cd rapfi-source/Rapfi/build-wasm
-          emcmake cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MULTI_THREADING=ON -DNO_COMMAND_MODULES=ON -DUSE_SSE=OFF -DUSE_AVX2=OFF -DUSE_AVX512=OFF -DUSE_BMI2=OFF -DUSE_VNNI=OFF -DUSE_NEON=OFF -DUSE_NEON_DOTPROD=OFF -DUSE_WASM_SIMD=OFF -DUSE_WASM_SIMD_RELAXED=OFF
+          emcmake cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MULTI_THREADING=ON -DNO_COMMAND_MODULES=ON -DUSE_SSE=OFF -DUSE_AVX2=OFF -DUSE_AVX512=OFF -DUSE_BMI2=OFF -DUSE_VNNI=OFF -DUSE_NEON=OFF -DUSE_NEON_DOTPROD=OFF -DUSE_WASM_SIMD=ON -DUSE_WASM_SIMD_RELAXED=OFF
           cmake --build . --parallel 2
           mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/assets/engine"
-          cp rapfi-single.js rapfi-single.wasm "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/"
-          cp rapfi-single.data "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/rapfi.data"
+          cp rapfi-single-simd128.js rapfi-single-simd128.wasm "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/"
+          cp rapfi-single-simd128.data "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/rapfi.data"
       - name: Build installable APK
         working-directory: android
         run: gradle --no-daemon :app:assembleRelease
