@@ -9,6 +9,7 @@
 3. 内置 Rapfi 引擎；
 4. 可借鉴 `dhbloo/gomoku-calculator`；
 5. 整理本次对话内容并上传到 GitHub。
+6. 将程序打包成 Windows EXE 和 Android APK，发布到 GitHub Release，供其他人下载即玩。
 
 ## 实现决定
 
@@ -18,6 +19,9 @@
 - 采用 15×15 自由规则：先形成五个或更多连续棋子的一方获胜。
 - 支持选择执黑/执白、新对局、悔棋、棋谱、计时、最后一手和获胜线显示。
 - 参考项目只用于确认协议与交互思路；本项目的代码和界面重新实现。
+- Windows Release 使用 PyInstaller 单文件模式，内置原生 Rapfi、配置和权重。
+- Android Release 使用本地 WebView 界面和 APK 内置 Rapfi WebAssembly，不需要联网加载引擎。
+- GitHub Actions 在标签发布时自动上传 EXE、APK 与 SHA-256 校验文件。
 
 ## 验收方式
 
