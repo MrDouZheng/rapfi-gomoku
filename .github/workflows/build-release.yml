@@ -56,6 +56,7 @@ jobs:
         shell: bash
         run: |
           git clone --depth 1 --branch 250615 --recurse-submodules --shallow-submodules https://github.com/dhbloo/rapfi.git rapfi-source
+          git -C rapfi-source apply "$GITHUB_WORKSPACE/patches/rapfi-wasm-single-thread.patch"
           cp engine/config.toml rapfi-source/Networks/config.toml
           cp engine/model210901.bin rapfi-source/Networks/model210901.bin
           cp engine/mix9svqfreestyle_bsmix.bin.lz4 rapfi-source/Networks/mix9svqfreestyle_bsmix.bin.lz4
