@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 MrDouZheng and contributors
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Tk desktop interface for Rapfi Gomoku."""
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ class GomokuApp:
             project_root / "engine" / "pbrain-rapfi-windows-sse.exe", self.SIZE
         )
 
-        self.root.title("弈境 · Rapfi 五子棋")
+        self.root.title("斗弈 · Rapfi 五子棋")
         self.root.geometry("1120x780")
         self.root.minsize(900, 660)
         self.root.configure(bg=BG)
@@ -70,7 +73,7 @@ class GomokuApp:
 
         tk.Label(
             header,
-            text="弈境",
+            text="斗弈",
             bg=BG,
             fg=TEXT,
             font=("Microsoft YaHei UI", 22, "bold"),
