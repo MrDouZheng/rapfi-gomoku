@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 MrDouZheng and contributors
+# SPDX-License-Identifier: GPL-3.0-only
+
 import unittest
 
 from gomoku.engine import parse_move

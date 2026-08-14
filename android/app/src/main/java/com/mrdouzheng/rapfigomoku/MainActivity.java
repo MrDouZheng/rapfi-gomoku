@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 MrDouZheng and contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
 package com.mrdouzheng.rapfigomoku;
 
 import android.app.Activity;

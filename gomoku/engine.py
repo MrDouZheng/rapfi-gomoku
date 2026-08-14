@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 MrDouZheng and contributors
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Rapfi subprocess adapter using the Gomocup/Yixin protocol."""
 
 from __future__ import annotations

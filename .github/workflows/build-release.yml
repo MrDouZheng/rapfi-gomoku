@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 MrDouZheng and contributors
+# SPDX-License-Identifier: GPL-3.0-only
+
 name: Build and release
 
 on:
@@ -52,37 +55,62 @@ jobs:
         with:
           version: "3.1.74"
           actions-cache-folder: emsdk-cache
+      - name: Test mobile application
+        run: |
+          python3 tools/check_mobile_assets.py
+          node tests/test_mobile_ai.mjs
       - name: Build Rapfi WebAssembly
         shell: bash
-        run: |
-          git clone --depth 1 --branch 250615 --recurse-submodules --shallow-submodules https://github.com/dhbloo/rapfi.git rapfi-source
-          git -C rapfi-source apply "$GITHUB_WORKSPACE/patches/rapfi-wasm-single-thread.patch"
-          cp engine/config.toml rapfi-source/Networks/config.toml
-          cp engine/model210901.bin rapfi-source/Networks/model210901.bin
-          cp engine/mix9svqfreestyle_bsmix.bin.lz4 rapfi-source/Networks/mix9svqfreestyle_bsmix.bin.lz4
-          printf '%s\n' 'config.toml@config.toml' 'model210901.bin@model210901.bin' 'mix9svqfreestyle_bsmix.bin.lz4@mix9svqfreestyle_bsmix.bin.lz4' > rapfi-source/Networks/wasm_preloads.txt
-          cmake -E make_directory rapfi-source/Rapfi/build-wasm
-          cd rapfi-source/Rapfi/build-wasm
-          emcmake cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MULTI_THREADING=ON -DNO_COMMAND_MODULES=ON -DUSE_SSE=OFF -DUSE_AVX2=OFF -DUSE_AVX512=OFF -DUSE_BMI2=OFF -DUSE_VNNI=OFF -DUSE_NEON=OFF -DUSE_NEON_DOTPROD=OFF -DUSE_WASM_SIMD=ON -DUSE_WASM_SIMD_RELAXED=OFF
-          cmake --build . --parallel 2
-          mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/assets/engine"
-          cp rapfi-single-simd128.js rapfi-single-simd128.wasm "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/"
-          cp rapfi-single-simd128.data "$GITHUB_WORKSPACE/android/app/src/main/assets/engine/rapfi.data"
+        run: bash scripts/build-rapfi-wasm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rapfiengine
+          path: ios/DouYi/Web/engine
+          if-no-files-found: error
       - name: Build installable APK
         working-directory: android
         run: gradle --no-daemon :app:assembleRelease
       - name: Name APK
-        run: cp android/app/build/outputs/apk/release/app-release.apk RapfiGomoku-Android.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk DouYi-Android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: RapfiGomoku-Android.apk
+          path: DouYi-Android.apk
+          if-no-files-found: error
+
+  ios:
+    name: iPhone Simulator App
+    needs: android
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rapfiengine
+          path: ios/DouYi/Web/engine
+      - name: Build iPhone Simulator app
+        run: |
+          xcodebuild \
+            -project ios/DouYi.xcodeproj \
+            -scheme DouYi \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package Simulator app
+        run: ditto -c -k --sequesterRsrc --keepParent ios/DerivedData/Build/Products/Release-iphonesimulator/DouYi.app DouYi-iOS-Simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: DouYi-iOS-Simulator.zip
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows, android]
+    needs: [windows, android, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -92,9 +120,9 @@ jobs:
           merge-multiple: true
       - name: Generate checksums
         working-directory: release-assets
-        run: sha256sum *.exe *.apk > SHA256SUMS.txt
+        run: sha256sum *.exe *.apk *.zip > SHA256SUMS.txt
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "弈境 · Rapfi 五子棋 ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+          gh release create "${GITHUB_REF_NAME}" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "斗弈 · Rapfi 五子棋 ${GITHUB_REF_NAME}" --generate-notes --verify-tag
