@@ -7,15 +7,29 @@ const SIZE = 15;
 const EMPTY = 0, BLACK = 1, WHITE = 2;
 const canvas = document.getElementById("board");
 const ctx = canvas.getContext("2d");
-const ui = Object.fromEntries(["engineBadge","singleMode","doubleMode","colorPicker","blackColor","whiteColor","statusKicker","statusTitle","moveCount","timer","undoButton","newButton","toast"].map(id => [id, document.getElementById(id)]));
+const ui = Object.fromEntries(["engineBadge","singleMode","doubleMode","aiMode","colorPicker","blackColor","whiteColor","watchControls","pauseButton","stepButton","watchSpeed","moveHistory","moveList","statusKicker","statusTitle","moveCount","timer","undoButton","newButton","toast"].map(id => [id, document.getElementById(id)]));
 
 let board, moves, winner, winningLine, mode = "single", human = BLACK;
 let thinking = false, engineReady = false, engineMode = "loading", worker = null;
 let startedAt = Date.now(), toastTimer, aiGeneration = 0;
+let aiPaused = false, aiDelay = 1200, aiTimer = null;
 
 function blankBoard(){ return Array.from({length: SIZE}, () => Array(SIZE).fill(EMPTY)); }
 function currentPlayer(){ return moves.length % 2 === 0 ? BLACK : WHITE; }
 function opponent(stone){ return stone === BLACK ? WHITE : BLACK; }
+function gameFinished(){ return Boolean(winner) || moves.length === SIZE * SIZE; }
+function isAiTurn(){ return mode === "ai" || (mode === "single" && currentPlayer() !== human); }
+
+// Retire both pending timers and worker results before changing a position.
+function cancelAiMove(){
+  aiGeneration++;
+  if (aiTimer !== null) clearTimeout(aiTimer);
+  aiTimer = null;
+  const restart = thinking && engineMode === "rapfi";
+  thinking = false;
+  if (restart && worker) { worker.terminate(); worker = null; engineReady = false; }
+  return restart;
+}
 
 function startWorker(){
   aiGeneration++;
@@ -25,9 +39,10 @@ function startWorker(){
   ui.engineBadge.innerHTML = "<span></span>引擎加载中";
   try {
     if (typeof Worker !== "function") throw new Error("当前 WebView 不支持 Web Worker");
-    worker = new Worker("engine-worker.js");
-    worker.onmessage = onEngineMessage;
-    worker.onerror = event => activateLocalEngine(event.message || "Rapfi WebAssembly 启动失败");
+    const instance = new Worker("engine-worker.js");
+    worker = instance;
+    worker.onmessage = event => { if (worker === instance) onEngineMessage(event); };
+    worker.onerror = event => { if (worker === instance) activateLocalEngine(event.message || "Rapfi WebAssembly 启动失败"); };
     worker.postMessage({type:"init"});
   } catch (error) {
     activateLocalEngine(error && error.message ? error.message : String(error));
@@ -46,6 +61,7 @@ function onEngineMessage(event){
       engineReady = true; engineMode = "rapfi";
       ui.engineBadge.className = "badge";
       ui.engineBadge.innerHTML = "<span></span>RAPFI 就绪";
+      updateStatus();
       maybeAiMove();
     } else if (thinking && /^\d+\s*,\s*\d+$/.test(line)) {
       const [x,y] = line.split(",").map(Number);
@@ -62,6 +78,7 @@ function onEngineMessage(event){
 
 function activateLocalEngine(reason){
   if (engineMode === "local") return;
+  cancelAiMove();
   if (worker) worker.terminate();
   worker = null; thinking = false; engineReady = true; engineMode = "local";
   ui.engineBadge.className = "badge local";
@@ -75,30 +92,45 @@ function engineError(message){
 }
 
 function newGame(restart = false){
-  if (thinking || restart) startWorker();
+  restart = cancelAiMove() || restart;
   board = blankBoard(); moves = []; winner = EMPTY; winningLine = [];
-  thinking = false; startedAt = Date.now();
+  aiPaused = false; startedAt = Date.now();
+  if (restart) startWorker();
   draw(); updateStatus(); maybeAiMove();
 }
 
 function place(x,y){
-  if (winner || !inside(x,y) || board[y][x] !== EMPTY) return false;
+  if (gameFinished() || !inside(x,y) || board[y][x] !== EMPTY) return false;
   const stone = currentPlayer();
   board[y][x] = stone; moves.push({x,y,stone});
   winningLine = findLine(x,y,stone);
   if (winningLine.length >= 5) winner = stone;
   draw(); updateStatus();
-  if (!winner) maybeAiMove();
+  if (!gameFinished()) maybeAiMove();
   return true;
 }
 
 function maybeAiMove(){
-  if (mode !== "single" || winner || currentPlayer() === human || thinking || !engineReady) return;
+  if (!isAiTurn() || gameFinished() || thinking || aiTimer !== null || !engineReady || (mode === "ai" && aiPaused)) return;
+  if (mode === "ai") {
+    const generation = aiGeneration;
+    aiTimer = setTimeout(() => {
+      if (generation !== aiGeneration) return;
+      aiTimer = null;
+      requestAiMove();
+    }, aiDelay);
+  } else requestAiMove();
+}
+
+function requestAiMove(step = false){
+  if (!isAiTurn() || gameFinished() || thinking || !engineReady || (mode === "ai" && aiPaused && !step)) return;
   thinking = true; updateStatus();
   if (engineMode === "local") {
     const generation = aiGeneration;
-    setTimeout(() => {
-      if (generation !== aiGeneration || !thinking || winner || currentPlayer() === human) return;
+    aiTimer = setTimeout(() => {
+      if (generation !== aiGeneration) return;
+      aiTimer = null;
+      if (!thinking || gameFinished() || !isAiTurn()) return;
       const move = chooseLocalMove(currentPlayer());
       thinking = false;
       if (move) place(move.x, move.y); else updateStatus();
@@ -109,6 +141,29 @@ function maybeAiMove(){
   const position = moves.map(m => `${m.x},${m.y},${m.stone}`).join(" ");
   command(`YXBOARD${position ? " " + position : ""} DONE`);
   command("YXNBEST 1");
+}
+
+function toggleAiPause(){
+  if (mode !== "ai" || gameFinished()) return;
+  aiPaused = !aiPaused;
+  if (aiPaused) {
+    const restart = cancelAiMove();
+    if (restart) startWorker();
+  } else maybeAiMove();
+  updateStatus();
+}
+
+function stepAi(){
+  if (mode !== "ai" || !aiPaused || thinking || gameFinished()) return;
+  requestAiMove(true);
+}
+
+function setAiSpeed(value){
+  aiDelay = Number(value);
+  if (mode === "ai" && !thinking && !aiPaused) {
+    cancelAiMove();
+    maybeAiMove();
+  }
 }
 
 function chooseLocalMove(stone){
@@ -154,14 +209,15 @@ function tacticalScore(x,y,stone){
 
 function undo(){
   if (!moves.length) return;
-  aiGeneration++;
   const wasThinking = thinking;
-  if (wasThinking) startWorker();
+  const restart = cancelAiMove();
+  if (mode === "ai") aiPaused = true;
   const count = mode === "single" && !wasThinking ? 2 : 1;
   for (let i=0;i<count && moves.length;i++) {
     const move = moves.pop(); board[move.y][move.x] = EMPTY;
   }
   winner = EMPTY; winningLine = []; thinking = false;
+  if (restart) startWorker();
   draw(); updateStatus(); maybeAiMove();
 }
 
@@ -202,22 +258,30 @@ function drawStone(move,index,margin,cell,scale){
   const g=ctx.createRadialGradient(x-r*.35,y-r*.4,r*.08,x,y,r);
   if(move.stone===BLACK){g.addColorStop(0,"#55595c");g.addColorStop(.3,"#242729");g.addColorStop(1,"#050607");}else{g.addColorStop(0,"#fff");g.addColorStop(.35,"#f2efe8");g.addColorStop(1,"#bab9b5");}
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.restore();
-  if(index===moves.length-1){ctx.fillStyle="#e65347";ctx.fillRect(x-2.5*scale,y-2.5*scale,5*scale,5*scale);}
+  if(mode==="ai"){ctx.fillStyle=move.stone===BLACK?"#f4f0e8":"#272a2c";ctx.font=`700 ${11*scale}px sans-serif`;ctx.fillText(String(index+1),x,y);}
+  if(index===moves.length-1){const markerY=mode==="ai"?y+r*.65:y;ctx.fillStyle="#e65347";ctx.fillRect(x-2.5*scale,markerY-2.5*scale,5*scale,5*scale);}
 }
 
 function updateStatus(){
   ui.moveCount.textContent=String(moves.length);
   if(winner){const name=winner===BLACK?"黑方":"白方";ui.statusTitle.textContent=`${name}获胜`;ui.statusKicker.textContent="五子连珠 · 对局结束";}
-  else if(thinking){ui.statusTitle.textContent=engineMode==="rapfi"?"Rapfi 思考中":"本地 AI 思考中";ui.statusKicker.textContent="正在计算最佳落点…";}
-  else{const name=currentPlayer()===BLACK?"黑方":"白方";ui.statusTitle.textContent=`${name}落子`;ui.statusKicker.textContent=mode==="double"?"本地双人对战":currentPlayer()===human?"轮到你了":"等待 Rapfi";}
+  else if(gameFinished()){ui.statusTitle.textContent="和棋";ui.statusKicker.textContent="棋盘已满 · 对局结束";}
+  else if(thinking){const name=currentPlayer()===BLACK?"黑方":"白方";ui.statusTitle.textContent=mode==="ai"?`${name} AI 思考中`:engineMode==="rapfi"?"Rapfi 思考中":"本地 AI 思考中";ui.statusKicker.textContent=engineMode==="rapfi"?"正在计算推荐落点…":"正在计算本地策略落点…";}
+  else{const name=currentPlayer()===BLACK?"黑方":"白方";ui.statusTitle.textContent=`${name}落子`;ui.statusKicker.textContent=mode==="ai"?aiPaused?"已暂停 · 可只走一手或回退":engineReady?"AI 自动对战 · 可随时暂停":"等待引擎加载…":mode==="double"?"本地双人对战":currentPlayer()===human?"轮到你了":"等待 AI";}
+  ui.pauseButton.textContent=aiPaused?"继续":"暂停";
+  ui.pauseButton.disabled=gameFinished();
+  ui.stepButton.disabled=!aiPaused||thinking||!engineReady||gameFinished();
+  ui.undoButton.disabled=!moves.length;
+  ui.moveList.textContent=moves.length?moves.map((m,i)=>`${i+1}. ${m.stone===BLACK?"●":"○"} ${String.fromCharCode(65+m.x)}${SIZE-m.y}`).join("   "):"落子后将在这里生成棋谱";
+  ui.moveList.scrollTop=ui.moveList.scrollHeight;
 }
 
-function selectMode(next){mode=next;ui.singleMode.classList.toggle("selected",mode==="single");ui.doubleMode.classList.toggle("selected",mode==="double");ui.colorPicker.hidden=mode!=="single";newGame(thinking);}
+function selectMode(next){if(mode===next)return;mode=next;ui.singleMode.classList.toggle("selected",mode==="single");ui.doubleMode.classList.toggle("selected",mode==="double");ui.aiMode.classList.toggle("selected",mode==="ai");ui.colorPicker.hidden=mode!=="single";ui.watchControls.hidden=mode!=="ai";ui.moveHistory.hidden=mode!=="ai";ui.undoButton.textContent=mode==="ai"?"回退一手":"悔棋";newGame();}
 function selectColor(next){human=next;ui.blackColor.classList.toggle("selected",human===BLACK);ui.whiteColor.classList.toggle("selected",human===WHITE);newGame(thinking);}
 function showToast(text){clearTimeout(toastTimer);ui.toast.textContent=text;ui.toast.classList.add("show");toastTimer=setTimeout(()=>ui.toast.classList.remove("show"),2600);}
 
-canvas.addEventListener("click",event=>{if(thinking||winner||(mode==="single"&&currentPlayer()!==human))return;const rect=canvas.getBoundingClientRect(),margin=38,cell=(rect.width-margin*2)/(SIZE-1);const x=Math.round((event.clientX-rect.left-margin)/cell),y=Math.round((event.clientY-rect.top-margin)/cell);if(inside(x,y))place(x,y);});
-ui.singleMode.onclick=()=>selectMode("single");ui.doubleMode.onclick=()=>selectMode("double");ui.blackColor.onclick=()=>selectColor(BLACK);ui.whiteColor.onclick=()=>selectColor(WHITE);ui.undoButton.onclick=undo;ui.newButton.onclick=()=>newGame(thinking);
+canvas.addEventListener("click",event=>{if(mode==="ai"||thinking||gameFinished()||(mode==="single"&&currentPlayer()!==human))return;const rect=canvas.getBoundingClientRect(),margin=rect.width*38/500,cell=(rect.width-margin*2)/(SIZE-1);const x=Math.round((event.clientX-rect.left-margin)/cell),y=Math.round((event.clientY-rect.top-margin)/cell);if(inside(x,y))place(x,y);});
+ui.singleMode.onclick=()=>selectMode("single");ui.doubleMode.onclick=()=>selectMode("double");ui.aiMode.onclick=()=>selectMode("ai");ui.blackColor.onclick=()=>selectColor(BLACK);ui.whiteColor.onclick=()=>selectColor(WHITE);ui.undoButton.onclick=undo;ui.newButton.onclick=()=>newGame();ui.pauseButton.onclick=toggleAiPause;ui.stepButton.onclick=stepAi;ui.watchSpeed.onchange=()=>setAiSpeed(ui.watchSpeed.value);
 window.addEventListener("resize",draw);setInterval(()=>{const seconds=Math.floor((Date.now()-startedAt)/1000);ui.timer.textContent=`${String(Math.floor(seconds/60)).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`;},500);
 
 newGame();startWorker();
