@@ -138,6 +138,8 @@ class SpectatorTests(unittest.TestCase):
             self.assertTrue(widget.winfo_ismapped(), widget["text"])
             self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), bottom)
         self.assertGreaterEqual(self.app.moves_text.winfo_height(), 50)
+        self.assertEqual(self.app.ai_button.master.master.winfo_width(), 286)
+        self.assertGreater(self.app.canvas.winfo_width(), 400)
 
 
 if __name__ == "__main__":

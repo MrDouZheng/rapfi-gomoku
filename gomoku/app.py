@@ -127,7 +127,7 @@ class GomokuApp:
 
         side = tk.Frame(content, bg=PANEL, width=286, highlightthickness=1, highlightbackground="#2A3034")
         side.grid(row=0, column=1, sticky="ns")
-        side.grid_propagate(False)
+        side.pack_propagate(False)
 
         self._section_label(side, "对战模式").pack(anchor="w", padx=20, pady=(12, 10))
         mode_row = tk.Frame(side, bg=PANEL_ALT)
