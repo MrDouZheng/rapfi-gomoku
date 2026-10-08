@@ -22,10 +22,22 @@
     <section class="mode-card">
       <button id="singleMode" class="selected">单人对战</button>
       <button id="doubleMode">双人对战</button>
+      <button id="aiMode">AI 对战</button>
       <div id="colorPicker" class="color-picker">
         <span>我的棋色</span>
         <button id="blackColor" class="selected">● 黑</button>
         <button id="whiteColor">○ 白</button>
+      </div>
+      <div id="watchControls" class="watch-controls" hidden>
+        <button id="pauseButton">暂停</button>
+        <button id="stepButton" disabled>只走一手</button>
+        <label>落子间隔
+          <select id="watchSpeed" aria-label="AI 落子间隔">
+            <option value="500">快 · 0.5 秒</option>
+            <option value="1200" selected>标准 · 1.2 秒</option>
+            <option value="2500">慢 · 2.5 秒</option>
+          </select>
+        </label>
       </div>
     </section>
 
@@ -36,6 +48,11 @@
     <section class="status-card">
       <div><small id="statusKicker">轮到你了</small><strong id="statusTitle">黑方落子</strong></div>
       <div class="metrics"><span><b id="moveCount">0</b> 手</span><span id="timer">00:00</span></div>
+    </section>
+
+    <section id="moveHistory" class="move-history" hidden>
+      <strong>观战棋谱</strong><span>数字为落子顺序 · 红点为最后一手</span>
+      <p id="moveList">落子后将在这里生成棋谱</p>
     </section>
 
     <section class="actions">

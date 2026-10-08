@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-import random
+import queue
 import threading
 import time
 import tkinter as tk
@@ -42,6 +42,11 @@ class GomokuApp:
         self.thinking = False
         self.hover: tuple[int, int] | None = None
         self.search_token = 0
+        self.ai_paused = False
+        self.ai_delay = 1200
+        self.ai_timer: str | None = None
+        self.search_active = False
+        self.search_results: queue.Queue = queue.Queue()
         self.started_at = time.monotonic()
         self.engine = RapfiEngine(
             project_root / "engine" / "pbrain-rapfi-windows-sse.exe", self.SIZE
@@ -56,6 +61,7 @@ class GomokuApp:
         self._build_ui()
         self._draw_board()
         self._update_status()
+        self.poll_timer = self.root.after(50, self._poll_ai_results)
 
     def _build_ui(self) -> None:
         self.root.grid_columnconfigure(0, weight=1)
@@ -123,13 +129,15 @@ class GomokuApp:
         side.grid(row=0, column=1, sticky="ns")
         side.grid_propagate(False)
 
-        self._section_label(side, "对战模式").pack(anchor="w", padx=20, pady=(22, 10))
+        self._section_label(side, "对战模式").pack(anchor="w", padx=20, pady=(12, 10))
         mode_row = tk.Frame(side, bg=PANEL_ALT)
         mode_row.pack(fill="x", padx=20)
         self.single_button = self._segment_button(mode_row, "单人对战", lambda: self._set_mode("single"))
         self.single_button.pack(side="left", fill="x", expand=True, padx=2, pady=2)
         self.double_button = self._segment_button(mode_row, "双人对战", lambda: self._set_mode("double"))
         self.double_button.pack(side="left", fill="x", expand=True, padx=2, pady=2)
+        self.ai_button = self._segment_button(mode_row, "AI 对战", lambda: self._set_mode("ai"))
+        self.ai_button.pack(side="left", fill="x", expand=True, padx=2, pady=2)
 
         self.color_group = tk.Frame(side, bg=PANEL)
         self.color_group.pack(fill="x", padx=20, pady=(14, 0))
@@ -145,8 +153,26 @@ class GomokuApp:
         self.white_button = self._small_button(self.color_group, "○ 白", lambda: self._set_human_color(Stone.WHITE))
         self.white_button.pack(side="right")
 
+        self.watch_group = tk.Frame(side, bg=PANEL)
+        watch_row = tk.Frame(self.watch_group, bg=PANEL)
+        watch_row.pack(fill="x")
+        self.pause_button = self._small_button(watch_row, "暂停", self.toggle_ai_pause)
+        self.pause_button.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.step_button = self._small_button(watch_row, "只走一手", self.step_ai)
+        self.step_button.pack(side="left", fill="x", expand=True)
+        speed_row = tk.Frame(self.watch_group, bg=PANEL)
+        speed_row.pack(fill="x", pady=(8, 0))
+        tk.Label(speed_row, text="落子间隔", bg=PANEL, fg=MUTED,
+                 font=("Microsoft YaHei UI", 9)).pack(side="left")
+        self.speed_var = tk.StringVar(value="标准 · 1.2 秒")
+        speed_menu = tk.OptionMenu(speed_row, self.speed_var, "快 · 0.5 秒", "标准 · 1.2 秒", "慢 · 2.5 秒", command=self._set_ai_speed)
+        speed_menu.configure(bg=PANEL_ALT, fg=TEXT, activebackground=PANEL_ALT,
+                             highlightthickness=0, relief="flat", font=("Microsoft YaHei UI", 8))
+        speed_menu["menu"].configure(bg=PANEL_ALT, fg=TEXT)
+        speed_menu.pack(side="right")
+
         divider = tk.Frame(side, bg="#2B3236", height=1)
-        divider.pack(fill="x", padx=20, pady=20)
+        divider.pack(fill="x", padx=20, pady=8)
 
         self.turn_label = tk.Label(
             side,
@@ -163,19 +189,19 @@ class GomokuApp:
             fg=ACCENT,
             font=("Microsoft YaHei UI", 10),
         )
-        self.status_label.pack(anchor="w", padx=20, pady=(4, 14))
+        self.status_label.pack(anchor="w", padx=20, pady=(4, 10))
 
         info_row = tk.Frame(side, bg=PANEL_ALT)
-        info_row.pack(fill="x", padx=20, pady=(0, 18))
+        info_row.pack(fill="x", padx=20, pady=(0, 8))
         self.move_count_label = self._metric(info_row, "手数", "0")
         self.move_count_label.master.pack(side="left", fill="x", expand=True, padx=(0, 1))
         self.time_label = self._metric(info_row, "用时", "00:00")
         self.time_label.master.pack(side="left", fill="x", expand=True, padx=(1, 0))
 
-        self._section_label(side, "棋谱").pack(anchor="w", padx=20, pady=(0, 8))
+        self._section_label(side, "棋谱").pack(anchor="w", padx=20, pady=(0, 6))
         self.moves_text = tk.Text(
             side,
-            height=9,
+            height=4,
             bg="#14191B",
             fg="#D5D9D8",
             insertbackground=TEXT,
@@ -187,10 +213,10 @@ class GomokuApp:
             font=("Consolas", 10),
             state="disabled",
         )
-        self.moves_text.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        self.moves_text.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         controls = tk.Frame(side, bg=PANEL)
-        controls.pack(fill="x", padx=20, pady=(0, 20))
+        controls.pack(side="bottom", fill="x", padx=20, pady=(0, 10), before=self.moves_text)
         self.new_button = self._action_button(controls, "新对局", self.new_game, primary=True)
         self.new_button.pack(fill="x", pady=(0, 8))
         self.undo_button = self._action_button(controls, "悔棋", self.undo)
@@ -199,7 +225,7 @@ class GomokuApp:
         self.center_button.pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         self._refresh_mode_buttons()
-        self.root.after(500, self._tick)
+        self.tick_timer = self.root.after(500, self._tick)
 
     def _section_label(self, parent: tk.Widget, text: str) -> tk.Label:
         return tk.Label(
@@ -284,43 +310,83 @@ class GomokuApp:
         idle = {"bg": PANEL_ALT, "fg": MUTED, "activebackground": "#343C40"}
         self.single_button.configure(**(selected if self.mode == "single" else idle))
         self.double_button.configure(**(selected if self.mode == "double" else idle))
+        self.ai_button.configure(**(selected if self.mode == "ai" else idle))
         self.black_button.configure(fg=ACCENT if self.human_color is Stone.BLACK else TEXT)
         self.white_button.configure(fg=ACCENT if self.human_color is Stone.WHITE else TEXT)
         if self.mode == "single":
             self.color_group.pack(fill="x", padx=20, pady=(14, 0), after=self.single_button.master)
         else:
             self.color_group.pack_forget()
+        if self.mode == "ai":
+            self.watch_group.pack(fill="x", padx=20, pady=(8, 0), after=self.single_button.master)
+        else:
+            self.watch_group.pack_forget()
+        self.undo_button.configure(text="回退一手" if self.mode == "ai" else "悔棋")
 
-    def new_game(self) -> None:
+    def _cancel_ai(self) -> None:
         self.search_token += 1
-        if self.thinking:
+        if self.ai_timer is not None:
+            self.root.after_cancel(self.ai_timer)
+            self.ai_timer = None
+        if self.search_active:
             self.engine.stop()
         self.thinking = False
+
+    def _schedule_ai(self, delay: int = 140, *, step: bool = False) -> None:
+        if self.ai_timer is not None:
+            self.root.after_cancel(self.ai_timer)
+        def request() -> None:
+            self.ai_timer = None
+            self._request_ai_move(step=step)
+        self.ai_timer = self.root.after(delay, request)
+
+    def toggle_ai_pause(self) -> None:
+        if self.mode != "ai" or self.board.result.finished:
+            return
+        self.ai_paused = not self.ai_paused
+        if self.ai_paused:
+            self._cancel_ai()
+        else:
+            self._schedule_ai(self.ai_delay)
+        self._update_status()
+
+    def step_ai(self) -> None:
+        if self.mode != "ai" or not self.ai_paused or self.search_active or self.board.result.finished:
+            return
+        self._request_ai_move(step=True)
+
+    def _set_ai_speed(self, label: str) -> None:
+        self.ai_delay = {"快 · 0.5 秒": 500, "标准 · 1.2 秒": 1200, "慢 · 2.5 秒": 2500}[label]
+        if self.mode == "ai" and not self.ai_paused and not self.thinking and not self.board.result.finished:
+            self._schedule_ai(self.ai_delay)
+
+    def new_game(self) -> None:
+        self._cancel_ai()
+        self.ai_paused = False
         self.board.clear()
         self.hover = None
         self.started_at = time.monotonic()
         self._draw_board()
         self._update_status()
-        if self.mode == "single" and self.human_color is Stone.WHITE:
-            self.root.after(180, self._request_ai_move)
+        if self.mode == "ai" or (self.mode == "single" and self.human_color is Stone.WHITE):
+            self._schedule_ai(self.ai_delay if self.mode == "ai" else 180)
 
     def undo(self) -> None:
         if not self.board.moves:
             return
-        self.search_token += 1
         was_thinking = self.thinking
-        if was_thinking:
-            self.engine.stop()
-        self.thinking = False
-        count = 1 if self.mode == "double" or was_thinking else 2
+        self._cancel_ai()
+        if self.mode == "ai":
+            self.ai_paused = True
+        count = 1 if self.mode != "single" or was_thinking else 2
         self.board.undo(count)
         self._draw_board()
         self._update_status()
         if self.mode == "single" and self.board.current_player is not self.human_color:
-            self.root.after(120, self._request_ai_move)
+            self._schedule_ai(120)
 
     def _on_click(self, event: tk.Event) -> None:
-        if self.thinking or self.board.result.finished:
+        if self.mode == "ai" or self.thinking or self.board.result.finished:
             return
         if self.mode == "single" and self.board.current_player is not self.human_color:
             return
@@ -334,21 +400,28 @@ class GomokuApp:
         self._draw_board()
         self._update_status()
         if self.mode == "single" and not self.board.result.finished:
-            self.root.after(140, self._request_ai_move)
+            self._schedule_ai()
 
-    def _request_ai_move(self) -> None:
+    def _request_ai_move(self, *, step: bool = False) -> None:
         if (
-            self.mode != "single"
+            self.mode not in ("single", "ai")
             or self.board.result.finished
-            or self.board.current_player is self.human_color
+            or (self.mode == "single" and self.board.current_player is self.human_color)
+            or (self.mode == "ai" and self.ai_paused and not step)
             or self.thinking
         ):
             return
+        if self.search_active:
+            self._schedule_ai(50, step=step)
+            return
         if not self.engine.available:
+            self.ai_paused = True
+            self._update_status()
             messagebox.showerror("Rapfi 不可用", "内置引擎文件缺失，请重新下载完整项目。")
             return
 
         self.thinking = True
+        self.search_active = True
         self.search_token += 1
         token = self.search_token
         snapshot = list(self.board.moves)
@@ -357,11 +430,23 @@ class GomokuApp:
         def think() -> None:
             try:
                 move = self.engine.best_move(snapshot, time_ms=1100, max_depth=24)
-                self.root.after(0, lambda: self._finish_ai_move(token, move, None))
+                self.search_results.put((token, move, None))
             except Exception as exc:  # UI boundary: display a friendly engine error.
-                self.root.after(0, lambda: self._finish_ai_move(token, None, exc))
+                self.engine.close()
+                self.search_results.put((token, None, exc))
 
         threading.Thread(target=think, name="rapfi-search", daemon=True).start()
+
+    def _poll_ai_results(self) -> None:
+        try:
+            token, move, error = self.search_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self.search_active = False
+            self._finish_ai_move(token, move, error)
+            self._update_status()
+        self.poll_timer = self.root.after(50, self._poll_ai_results)
 
     def _finish_ai_move(
         self,
@@ -373,18 +458,25 @@ class GomokuApp:
             return
         self.thinking = False
         if error is not None:
+            self.ai_paused = True
             self._update_status()
             messagebox.showerror("Rapfi 引擎错误", str(error))
             return
         if move is None:
+            self.ai_paused = True
+            self._update_status()
             return
         try:
             self.board.place(*move)
         except InvalidMove as exc:
+            self.ai_paused = True
+            self._update_status()
             messagebox.showerror("Rapfi 返回非法落点", f"{move}: {exc}")
             return
         self._draw_board()
         self._update_status()
+        if self.mode == "ai" and not self.ai_paused and not self.board.result.finished:
+            self._schedule_ai(self.ai_delay)
 
     def _board_geometry(self) -> tuple[float, float, float]:
         width = max(self.canvas.winfo_width(), 200)
@@ -447,7 +539,7 @@ class GomokuApp:
             canvas.create_text(left + index * cell, top - pad * 0.62, text=chr(65 + index), fill="#6E4A25", font=label_font)
             canvas.create_text(left - pad * 0.62, top + index * cell, text=str(self.SIZE - index), fill="#6E4A25", font=label_font)
 
-        if self.hover and not self.thinking and not self.board.result.finished:
+        if self.hover and self.mode != "ai" and not self.thinking and not self.board.result.finished:
             x, y = self.hover
             if self.board.at(x, y) is Stone.EMPTY:
                 cx, cy = left + x * cell, top + y * cell
@@ -489,11 +581,12 @@ class GomokuApp:
         highlight_r = radius * 0.13
         self.canvas.create_oval(cx - radius * 0.45 - highlight_r, cy - radius * 0.45 - highlight_r, cx - radius * 0.45 + highlight_r, cy - radius * 0.45 + highlight_r, fill="#606365" if stone is Stone.BLACK else "#FFFFFF", outline="")
 
+        if self.mode == "ai" or (number != len(self.board.moves) and cell >= 27):
+            self.canvas.create_text(cx, cy, text=str(number), fill=number_color, font=("Segoe UI", max(7, int(cell * 0.22)), "bold"))
         if number == len(self.board.moves):
             marker = max(2, cell * 0.07)
-            self.canvas.create_rectangle(cx - marker, cy - marker, cx + marker, cy + marker, fill=RED, outline="")
-        elif cell >= 27:
-            self.canvas.create_text(cx, cy, text=str(number), fill=number_color, font=("Segoe UI", max(7, int(cell * 0.22)), "bold"))
+            marker_y = cy + radius * 0.65 if self.mode == "ai" else cy
+            self.canvas.create_rectangle(cx - marker, marker_y - marker, cx + marker, marker_y + marker, fill=RED, outline="")
 
     def _event_to_point(self, event_x: int, event_y: int) -> tuple[int, int] | None:
         left, top, cell = self._board_geometry()
@@ -526,16 +619,23 @@ class GomokuApp:
             self.turn_label.configure(text="和棋")
             self.status_label.configure(text="棋盘已满", fg=MUTED)
         elif self.thinking:
-            self.turn_label.configure(text="Rapfi 思考中")
+            current = "黑方" if self.board.current_player is Stone.BLACK else "白方"
+            self.turn_label.configure(text=f"{current} AI 思考中" if self.mode == "ai" else "Rapfi 思考中")
             self.status_label.configure(text="正在计算最佳落点…", fg=ACCENT)
         else:
             current = "黑方" if self.board.current_player is Stone.BLACK else "白方"
             self.turn_label.configure(text=f"{current}落子")
             if self.mode == "single":
                 text = "轮到你了" if self.board.current_player is self.human_color else "等待 Rapfi"
+            elif self.mode == "ai":
+                text = "已暂停 · 可只走一手或回退" if self.ai_paused else "AI 自动对战 · 可随时暂停"
             else:
                 text = "本地双人对战"
             self.status_label.configure(text=text, fg=ACCENT)
+
+        self.pause_button.configure(text="继续" if self.ai_paused else "暂停",
+                                    state="disabled" if result.finished else "normal")
+        self.step_button.configure(state="normal" if self.ai_paused and not self.search_active and not result.finished else "disabled")
 
         self.move_count_label.configure(text=str(len(self.board.moves)))
         lines = []
@@ -556,14 +656,16 @@ class GomokuApp:
     def _tick(self) -> None:
         elapsed = int(time.monotonic() - self.started_at)
         self.time_label.configure(text=f"{elapsed // 60:02d}:{elapsed % 60:02d}")
-        self.root.after(500, self._tick)
+        self.tick_timer = self.root.after(500, self._tick)
 
     def _center_hint(self) -> None:
         self.hover = (self.SIZE // 2, self.SIZE // 2)
         self._draw_board()
 
     def on_close(self) -> None:
-        self.search_token += 1
+        self._cancel_ai()
+        self.root.after_cancel(self.poll_timer)
+        self.root.after_cancel(self.tick_timer)
         self.engine.close()
         self.root.destroy()
 
