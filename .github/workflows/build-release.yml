@@ -32,6 +32,8 @@ jobs:
           Move-Item dist/RapfiGomoku.exe dist/RapfiGomoku-Windows-x64.exe
           $process = Start-Process -FilePath dist/RapfiGomoku-Windows-x64.exe -ArgumentList "--engine-smoke-test" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Frozen Rapfi smoke test failed with exit code $($process.ExitCode)" }
+          $process = Start-Process -FilePath dist/RapfiGomoku-Windows-x64.exe -ArgumentList "--spectator-smoke-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Frozen AI spectator smoke test failed with exit code $($process.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-exe
@@ -48,6 +50,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
@@ -59,6 +63,7 @@ jobs:
         run: |
           python3 tools/check_mobile_assets.py
           node tests/test_mobile_ai.mjs
+          node tests/test_mobile_spectator.mjs
       - name: Build Rapfi WebAssembly
         shell: bash
         run: bash scripts/build-rapfi-wasm.sh

@@ -1,15 +1,27 @@
 # 斗弈 · Rapfi 五子棋
 
-一款支持 iPhone、Android 和 Windows 的离线五子棋。支持本地双人和单人 AI 对战；移动端优先加载 Rapfi WebAssembly，在引擎产物缺失或 WebView 不支持时自动切换到内置离线策略 AI。
+一款支持 iPhone、Android 和 Windows 的离线五子棋。支持本地双人、单人 AI 对战和双方 AI 自动对战；移动端优先加载 Rapfi WebAssembly，在引擎产物缺失或 WebView 不支持时自动切换到内置离线策略 AI。
 
 ## 功能
 
 - 单人对战：可选择执黑或执白；Rapfi 可用时通过 Gomocup/Yixin 协议计算落点
 - 双人对战：同一设备轮流落子
+- AI 对战：黑白双方自动落子，支持暂停／继续、只走一手、回退一手和落子间隔调节
+- 观战学习：棋盘显示落子序号、最后一手红点，棋谱显示每手坐标
 - 15×15 自适应棋盘、最后一手标记、获胜连线
 - 新对局、悔棋、棋谱坐标和对局计时
 - iPhone 安全区、Retina 棋盘和仅竖屏布局
 - 完全离线；应用不会请求网络权限
+
+## AI 观战学习
+
+1. 选择「AI 对战」，黑白双方会自动轮流落子，到胜负或和棋时停止。
+2. 点击「暂停」后，可用「只走一手」观察下一步；「继续」恢复自动对战。
+3. 「回退一手」会撤销最后一手并自动暂停，便于查看之前的局面。再走一手会从当前局面重新计算，未保存被撤销的分支。
+4. 落子间隔可选 0.5、1.2、2.5 秒，另需等待 AI 的计算时间；这只调整观战节奏，不改变搜索强度。
+5. 查看棋盘序号和棋谱坐标（如 H8），学习双方攻防。观战期间点击棋盘不会手动落子。
+
+Windows 双方使用内置 Rapfi；移动端以顶部引擎标识为准，显示「本地 AI 就绪」时使用的是内置策略 AI。AI 给出的是当前搜索条件下的推荐落点，不保证数学意义上的最优解。
 
 ## iPhone 运行
 
@@ -58,6 +70,7 @@ python run.py
 python -m unittest discover -s tests -v
 node --check android/app/src/main/assets/app.js
 node tests/test_mobile_ai.mjs
+node tests/test_mobile_spectator.mjs
 ```
 
 iOS 编译验证（macOS）：

@@ -15,6 +15,7 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
 html, body {
   margin: 0;
   min-height: 100%;
@@ -54,7 +55,7 @@ header p { font-size: 9px; font-weight: 800; letter-spacing: 1.5px; color: var(-
 .badge.local { color: #77b7e5; }
 .badge.error { color: var(--red); }
 .mode-card, .status-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-.mode-card { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; margin: 9px 0 12px; }
+.mode-card { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; margin: 9px 0 12px; }
 .mode-card > button, .color-picker button {
   background: transparent;
   border-radius: 10px;
@@ -67,6 +68,14 @@ header p { font-size: 9px; font-weight: 800; letter-spacing: 1.5px; color: var(-
 .color-picker { grid-column: 1/-1; display: flex; align-items: center; border-top: 1px solid var(--line); margin-top: 4px; padding: 8px 5px 4px; gap: 5px; }
 .color-picker span { font-size: 12px; color: var(--muted); margin-right: auto; padding-left: 5px; }
 .color-picker button { padding: 7px 12px; }
+.watch-controls { grid-column: 1/-1; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; border-top: 1px solid var(--line); margin-top: 4px; padding: 9px 5px 5px; }
+.watch-controls button, .watch-controls select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 12px; }
+.watch-controls label { display: flex; align-items: center; gap: 5px; margin-left: auto; color: var(--muted); font-size: 11px; }
+button:disabled { opacity: .4; }
+.move-history { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+.move-history strong { font-size: 12px; }
+.move-history span { display: block; color: var(--muted); font-size: 10px; margin-top: 3px; }
+.move-history p { max-height: 64px; overflow-y: auto; margin: 7px 0 0; font: 12px/1.7 Consolas, monospace; white-space: pre-wrap; color: var(--text); }
 .board-card {
   position: relative;
   aspect-ratio: 1/1;
